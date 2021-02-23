@@ -1,4 +1,5 @@
 keys.py
+discord_cred.py
 .vscode
 .mypy_cache
 __pycache__

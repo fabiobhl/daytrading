@@ -9,6 +9,7 @@ import pandas as pd
 from coin import Coin
 from concurrent import futures
 import threading
+import discord_cred
 
 """
 To-Do:
@@ -145,7 +146,7 @@ Main Function
 async def main():
     #wait for discord client to be ready
     await client.wait_until_ready()
-    channel = client.get_channel(channel_id)
+    channel = client.get_channel(discord_cred.channel_id)
     await asyncio.sleep(0.01)
 
     #download all coins
@@ -172,4 +173,4 @@ async def main():
 Bot
 """
 client.loop.create_task(main())
-client.run(token)
+client.run(discord_cred.token)
