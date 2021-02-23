@@ -4,8 +4,6 @@ import pandas as pd
 from binance.client import Client
 import ta
 import keys
-import plotly.express as px
-import plotly.graph_objs as go
 import time
 import datetime
 
@@ -54,7 +52,6 @@ def ema(data, length=50):
 """
 Coin Class
 """
-
 class Coin():
 
     def __init__(self, symbol):
@@ -64,7 +61,9 @@ class Coin():
         """
         Download the initial 1h klines
         """
-        raw_data = self.client.get_historical_klines(symbol=self.symbol, interval="1h", start_str="100 hours ago UTC")
+        #raw_data = self.client.get_historical_klines(symbol=self.symbol, interval="1h", start_str="100 hours ago UTC")
+        #data = pd.DataFrame(raw_data)
+        raw_data = self.client.get_klines(symbol=self.symbol, interval="1h", limit=100)
         data = pd.DataFrame(raw_data)
 
         #clean the dataframe
@@ -94,7 +93,9 @@ class Coin():
         Download the initial 5m klines
         """
 
-        raw_data = self.client.get_historical_klines(symbol=self.symbol, interval="5m", start_str="20 hour ago UTC")
+        #raw_data = self.client.get_historical_klines(symbol=self.symbol, interval="5m", start_str="20 hour ago UTC")
+        #data = pd.DataFrame(raw_data)
+        raw_data = self.client.get_klines(symbol=self.symbol, interval="5m", limit=240)
         data = pd.DataFrame(raw_data)
 
         #clean the dataframe
@@ -133,11 +134,13 @@ class Coin():
 
     def update_data_between(self):
         while True:
+            #download new data
             while True:
                 #get new kline
                 while True:
                     try:
-                        data = self.client.get_historical_klines(symbol=self.symbol, interval="5m", start_str="10 minutes ago UTC")
+                        #data = self.client.get_historical_klines(symbol=self.symbol, interval="5m", start_str="10 minutes ago UTC")
+                        data = self.client.get_klines(symbol=self.symbol, interval="5m", limit=2)
                         break
                     except Exception:
                         time.sleep(0.1)
@@ -159,11 +162,13 @@ class Coin():
                     raise Exception("Nan values in data, please discard this object and try again")
 
                 new_klines = data
+                new_klines["ema"] = np.nan
 
                 #check if data is full
-                if new_klines.shape == (2,7):
+                if new_klines.shape == (2,8):
                     break
-
+            
+            #add them to the dataframe
             if new_klines.iloc[0,0] >= self.klines_5m.iloc[-1,0]:
                 #replace last item
                 self.klines_5m.iloc[-1,:] = new_klines.iloc[0,:]
@@ -190,11 +195,13 @@ class Coin():
 
         #update the 1h klines
         while True:
+            #download the data
             while True:
                 #get new kline
                 while True:
                     try:
-                        data = self.client.get_historical_klines(symbol=self.symbol, interval="1h", start_str="2 hours ago UTC")
+                        #data = self.client.get_historical_klines(symbol=self.symbol, interval="1h", start_str="2 hours ago UTC")
+                        data = self.client.get_klines(symbol=self.symbol, interval="1h", limit=2)
                         break
                     except Exception:
                         time.sleep(0.1)
@@ -215,11 +222,17 @@ class Coin():
                     raise Exception("Nan values in data, please discard this object and try again")
 
                 new_klines = data
+                new_klines["smaHigh"] = np.nan
+                new_klines["smaLow"] = np.nan
+                new_klines["Hlv"] = np.nan
+                new_klines["sslUp"] = np.nan
+                new_klines["sslDown"] = np.nan
 
                 #check if data is full
-                if new_klines.shape == (2,7):
+                if new_klines.shape == (2,12):
                     break
-
+            
+            #add them to the dataframe
             if new_klines.iloc[0,0] >= self.klines_1h.iloc[-1,0]:
                 #replace last item
                 self.klines_1h.iloc[-1,:] = new_klines.iloc[0,:]
@@ -286,11 +299,21 @@ class Coin():
         
         return ret_variable
 
+    @classmethod
+    def create(cls, symbol):
+        instance = cls(symbol=symbol)
+        return instance
+
+
+
 
 """
 Figure
 """
 """
+import plotly.express as px
+import plotly.graph_objs as go
+
 eth = Coin("ETHUSDT")
 
 candlestick_data_5m = go.Candlestick(x=eth.klines_5m["open_time"], open=eth.klines_5m["open"], high=eth.klines_5m["high"], low=eth.klines_5m["low"], close=eth.klines_5m["close"])

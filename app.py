@@ -6,10 +6,15 @@ import dash_html_components as html
 import dash_table
 from dash.dependencies import Input, Output
 
+"""
+To-Do:
+    -sort according to importance
+    -add update times
+"""
 
 app = dash.Dash()
 
-data = pd.read_csv("actions.csv", names=["symbol", "trend_state", "action"])
+data = pd.read_csv("./live_data/actions.csv", names=["symbol", "trend_state", "action"])
 
 head_div = html.Div()
 
@@ -60,7 +65,7 @@ style_data_conditional = [
 def update_metrics(n):
     while True:
         try:
-            data = pd.read_csv("actions.csv", names=["symbol", "trend_state", "action"])
+            data = pd.read_csv("./live_data/actions.csv", names=["symbol", "trend_state", "action"])
             break
         except Exception:
             pass
