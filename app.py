@@ -1,4 +1,5 @@
 import pandas as pd
+import json
 
 import dash
 import dash_core_components as dcc
@@ -7,22 +8,22 @@ import dash_table
 from dash.dependencies import Input, Output
 
 """
-To-Do:
-    -sort according to importance
-    -add update times
+Layout Setup
 """
 
-app = dash.Dash()
+app = dash.Dash(__name__)
 
 data = pd.read_csv("./live_data/actions.csv", names=["symbol", "trend_state", "action"])
 
-head_div = html.Div()
+head_div = html.Div(id="head_div", children=[html.H1("Daytrading Status")])
+
+info_div = html.Div(id="info_div")
 
 table_div = html.Div(id="table_div")
 
 interval = dcc.Interval(id='interval-component', interval=1*1000, n_intervals=0)
 
-app.layout = html.Div(children=[head_div, table_div, interval], style={"backgroundColor": "rgb(24, 28, 39)"})
+app.layout = html.Div(children=[head_div, info_div, table_div, interval])
 
 style_header={
     'backgroundColor': 'rgb(19, 23, 34)'
@@ -35,37 +36,44 @@ style_cell={
 style_data_conditional = [
     {"if" : {'filter_query': '{action} = PrecLong || {action} = PrecShort',
              'column_id': 'action'},
-     "backgroundColor": "rgb(235, 169, 56)",
-     "color": "white"
+     "color": "rgb(235, 169, 56)"
     },
     {"if" : {'filter_query': '{action} = Short',
              'column_id': 'action'},
-     "backgroundColor": "rgb(235, 56, 172)",
-     "color": "white"
+     "color": "rgb(235, 56, 172)"
     },
     {"if" : {'filter_query': '{action} = Long',
              'column_id': 'action'},
-     "backgroundColor": "rgb(56, 235, 104)",
-     "color": "white"
+     "color": "rgb(56, 235, 104)"
     },
     {"if" : {'filter_query': '{trend_state} = up',
              'column_id': 'trend_state'},
-     "backgroundColor": "rgb(38, 166, 154)",
-     "color": "white"
+     "color": "rgb(38, 166, 154)"
     },
     {"if" : {'filter_query': '{trend_state} = down',
              'column_id': 'trend_state'},
-     "backgroundColor": "rgb(239, 83, 80)",
-     "color": "white"
+     "color": "rgb(239, 83, 80)"
     }
 ]
 
+"""
+Table Callbacks
+"""
+def sorter(series):
+    series[series == "noA"] = 4
+    series[series == "PrecLong"] = 3
+    series[series == "PrecShort"] = 3
+    series[series == "Short"] = 2
+    series[series == "Long"] = 1
+    return series
+
 @app.callback(Output('table_div', 'children'),
               Input('interval-component', 'n_intervals'))
-def update_metrics(n):
+def update_table(n):
     while True:
         try:
             data = pd.read_csv("./live_data/actions.csv", names=["symbol", "trend_state", "action"])
+            data.sort_values(by="action", inplace=True, ignore_index=True, key=sorter)
             break
         except Exception:
             pass
@@ -77,7 +85,23 @@ def update_metrics(n):
                                 style_cell=style_cell,
                                 style_data_conditional=style_data_conditional,
                                 style_as_list_view=True)
-    
+
+"""
+Info Screen Callbacks
+"""
+@app.callback(Output('info_div', 'children'),
+              Input('interval-component', 'n_intervals'))
+def update_info_screen(n):
+    #read in the data
+    while True:
+        try:
+            with open("./live_data/metadata.json", "r") as json_file:
+                data = json.load(json_file)
+            break
+        except Exception:
+            pass
+
+    return html.Div(f"Update Duration: {data['complete_duration']} seconds")
 
 if __name__ == "__main__":
     app.run_server(host='0.0.0.0', debug=False)

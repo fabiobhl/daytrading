@@ -1,0 +1,17 @@
+body {
+    margin: 0;
+    background-color: rgb(24, 28, 39);
+}
+
+#info_div {
+    color: white;
+    padding: 10px;
+    text-align: center;
+}
+
+#head_div {
+    color: white;
+    text-align: center;
+    font-family: Helvetica, Courier, monospace;
+    padding: 10px;
+}
