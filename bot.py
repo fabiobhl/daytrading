@@ -10,21 +10,20 @@ from coin import Coin
 from concurrent import futures
 import threading
 import discord_cred
+import discord_utilities
 
 """
 To-Do:
-    -email notification on error
-    -solve updating too early
-    -binance link to long/short trading pair
     -between checks, which make sure that all the dfs got update correctly / logging
+    -email notification on error
+    -create configuration file
 """
 
 
 """
 Backend Setup
 """
-symbol_list = ["ETHUSDT", "BTCUSDT", "LTCUSDT", "UNIUSDT", "DOTUSDT", "ADAUSDT", "BNBUSDT", "LINKUSDT", "AAVEUSDT", "YFIUSDT"]
-symbol_list2 = ["ETHUSDT", "BTCUSDT", "LTCUSDT", "UNIUSDT", "DOTUSDT", "ADAUSDT", "BNBUSDT", "LINKUSDT", "AAVEUSDT", "YFIUSDT",
+symbol_list = ["ETHUSDT", "BTCUSDT", "LTCUSDT", "UNIUSDT", "DOTUSDT", "ADAUSDT", "BNBUSDT", "LINKUSDT", "AAVEUSDT", "YFIUSDT",
                 "BCHUSDT", "EOSUSDT", "SOLUSDT", "XLMUSDT", "SXPUSDT", "SUSHIUSDT", "TRXUSDT", "IOSTUSDT", "SRMUSDT", "FTMUSDT",
                 "ATOMUSDT", "ETCUSDT", "DOGEUSDT", "GRTUSDT", "XTZUSDT", "KSMUSDT", "1INCHUSDT", "AVAXUSDT", "VETUSDT", "FILUSDT"]
 
@@ -43,7 +42,8 @@ def setup(symbols):
 
     return coin_dict
 
-async def update(coin_dict, update_variable):
+#update the coins
+def update(coin_dict, update_variable):
     start = time.time()
 
     #update the coins
@@ -80,6 +80,7 @@ async def update(coin_dict, update_variable):
         update_duration = time.time() - update_start
     
     #discord notfifications dict
+    disc_not_prec = {}
     disc_not = {}
 
     #save the actions to csv
@@ -89,13 +90,17 @@ async def update(coin_dict, update_variable):
         action = coin_dict[key].buy_signal_detection()
         trend_state = coin_dict[key].trend_state
         symbol = key
+        url = coin_dict[key].url
 
         #append to frame
-        csv_frame.append([symbol, trend_state, action])
+        csv_frame.append([symbol, trend_state, action, url])
         
         #fill notification dict
-        if action in "PrecLong" or action in "PrecShort":
-            disc_not[symbol] = action
+        if action in "Long" or action in "Short":
+            disc_not[symbol] = [action, url]
+        elif action in "PrecLong" or action in "PrecShort":
+            disc_not_prec[symbol] = [action]
+    
     #write to csv
     df = pd.DataFrame(csv_frame)
     df.to_csv(path_or_buf="./live_data/actions.csv", header=False, index=False)
@@ -110,24 +115,10 @@ async def update(coin_dict, update_variable):
     with open("./live_data/metadata.json", "w") as jsonfile:
         json.dump(metadata, jsonfile)
     
-    return disc_not
+    return disc_not, disc_not_prec
 
-"""
-Discord Setup
-"""
-token = "ODEyOTk1NzE2Njk5NjUyMTA2.YDI3Qw.s6Z-N-FyhEwUBLrL3amFDb5p4FY"
-channel_id = 813126932707147806
-
-client = discord.Client()
-
-@client.event
-async def on_ready():
-    print('Logged in as')
-    print(client.user.name)
-    print(client.user.id)
-    print('------')
-
-async def asynctimer():
+#timer
+def timer():
     #incase the timer got called immediately after a 5 minute
     while datetime.now().minute % 5 == 0:
         pass
@@ -139,38 +130,25 @@ async def asynctimer():
     else:
         return "betweenUpdate"
 
-
 """
 Main Function
 """
-async def main():
-    #wait for discord client to be ready
-    await client.wait_until_ready()
-    channel = client.get_channel(discord_cred.channel_id)
-    await asyncio.sleep(0.01)
+def main(symbol_list):
+    #create all coin objects
+    coin_dict = setup(symbols=symbol_list)
 
-    #download all coins
-    coin_dict = setup(symbols=symbol_list2)
-    
-    #main loop
-    while not client.is_closed():
-        #wait for 5 minutes to pass
-        waiting_task = asyncio.create_task(asynctimer())
-        await waiting_task
+    while True:
+        #wait for time to get to 5 minutes
+        update_var = timer()
 
         #update the coins
-        updating_task = asyncio.create_task(update(coin_dict=coin_dict, update_variable=waiting_task.result()))
-        await updating_task
+        disc_not, disc_not_prec = update(coin_dict=coin_dict, update_variable=update_var)
 
-        #send results to discord channel
-        for key in updating_task.result():
-            await channel.send(f"{key}: {updating_task.result()[key]}")
-        
-        print("joee we did it")
+        #notify discord
+        discord_utilities.send(message_dict=disc_not, token=discord_cred.token, channel_id=discord_cred.channel_id)
+        discord_utilities.send(message_dict=disc_not_prec, token=discord_cred.token, channel_id=discord_cred.prec_channel_id)
 
+        print(f"Finished update at: {datetime.now()}")
 
-"""
-Bot
-"""
-client.loop.create_task(main())
-client.run(discord_cred.token)
+if __name__ == "__main__":
+    main(symbol_list)

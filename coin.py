@@ -54,31 +54,26 @@ Coin Class
 """
 class Coin():
 
-    def __init__(self, symbol):
+    def __init__(self, symbol, market_endpoint="futures"):
         self.symbol = symbol
         self.client = Client(api_key=keys.key, api_secret=keys.secret)
+        self.market_endpoint = market_endpoint
+
+        """
+        Set the url
+        """
+        if self.market_endpoint == "futures":
+            self.url = f"https://www.binance.com/en/futures/{self.symbol[0:-4]}_USDT"
+        elif self.market_endpoint == "spot":
+            self.url = f"https://www.binance.com/en/trade/{self.symbol[0:-4]}_USDT?layout=pro"
+        else:
+            raise Exception("Please choose a valid market_endpoint: [futures, spot]")
 
         """
         Download the initial 1h klines
         """
-        #raw_data = self.client.get_historical_klines(symbol=self.symbol, interval="1h", start_str="100 hours ago UTC")
-        #data = pd.DataFrame(raw_data)
-        raw_data = self.client.get_klines(symbol=self.symbol, interval="1h", limit=100)
-        data = pd.DataFrame(raw_data)
-
-        #clean the dataframe
-        data = data.astype(float)
-        data.drop(data.columns[[7,8,9,10,11]], axis=1, inplace=True)
-        data.rename(columns = {0:'open_time', 1:'open', 2:'high', 3:'low', 4:'close', 5:'volume', 6:'close_time'}, inplace=True)
-
-        #set the correct times
-        data['close_time'] += 1
-        data['close_time'] = pd.to_datetime(data['close_time'], unit='ms')
-        data['open_time'] = pd.to_datetime(data['open_time'], unit='ms')
-
-        #check for nan values
-        if data.isna().values.any():
-            raise Exception("Nan values in data, please discard this object and try again")
+        #download the data
+        data = self._download(interval="1h", limit=100)        
 
         #add the ssl channel
         ssl_channel(data)
@@ -92,10 +87,31 @@ class Coin():
         """
         Download the initial 5m klines
         """
+        #download the data
+        data = self._download(interval="5m", limit=240)
+        
+        #add the 50-ema
+        ema(data=data)
 
-        #raw_data = self.client.get_historical_klines(symbol=self.symbol, interval="5m", start_str="20 hour ago UTC")
-        #data = pd.DataFrame(raw_data)
-        raw_data = self.client.get_klines(symbol=self.symbol, interval="5m", limit=240)
+        #safety reset the index
+        data.reset_index(inplace=True, drop=True)
+
+        #save the dataframe
+        self.klines_5m = data
+
+        #get trend_state
+        self.get_trend_state()
+    
+    def _download(self, interval, limit):
+        #download raw data
+        if self.market_endpoint == "futures":
+            raw_data = self.client.futures_klines(symbol=self.symbol, interval=interval, limit=limit)
+        elif self.market_endpoint == "spot":
+            raw_data = self.client.get_klines(symbol=self.symbol, interval=interval, limit=limit)
+        else:
+            raise Exception("Please choose a valid market_endpoint: [futures, spot]")
+        
+        #create df
         data = pd.DataFrame(raw_data)
 
         #clean the dataframe
@@ -111,19 +127,9 @@ class Coin():
         #check for nan values
         if data.isna().values.any():
             raise Exception("Nan values in data, please discard this object and try again")
-        
-        #add the 50-ema
-        ema(data=data)
 
-        #safety reset the index
-        data.reset_index(inplace=True, drop=True)
+        return data
 
-        #save the dataframe
-        self.klines_5m = data
-
-        #get trend_state
-        self.get_trend_state()
-    
     def get_trend_state(self):
         if self.klines_1h["Hlv"].iloc[-1] < 0:
             self.trend_state = "down"
@@ -136,32 +142,10 @@ class Coin():
         while True:
             #download new data
             while True:
-                #get new kline
-                while True:
-                    try:
-                        #data = self.client.get_historical_klines(symbol=self.symbol, interval="5m", start_str="10 minutes ago UTC")
-                        data = self.client.get_klines(symbol=self.symbol, interval="5m", limit=2)
-                        break
-                    except Exception:
-                        time.sleep(0.1)
+                #download new data
+                new_klines = self._download(interval="5m", limit=2)
 
-                data = pd.DataFrame(data)
-
-                #clean the dataframe
-                data = data.astype(float)
-                data.drop(data.columns[[7,8,9,10,11]], axis=1, inplace=True)
-                data.rename(columns = {0:'open_time', 1:'open', 2:'high', 3:'low', 4:'close', 5:'volume', 6:'close_time'}, inplace=True)
-
-                #set the correct times
-                data['close_time'] += 1
-                data['close_time'] = pd.to_datetime(data['close_time'], unit='ms')
-                data['open_time'] = pd.to_datetime(data['open_time'], unit='ms')
-
-                #check for nan values
-                if data.isna().values.any():
-                    raise Exception("Nan values in data, please discard this object and try again")
-
-                new_klines = data
+                #add new column
                 new_klines["ema"] = np.nan
 
                 #check if data is full
@@ -181,12 +165,13 @@ class Coin():
 
                 #add the ema
                 ema(data=self.klines_5m)
+
                 #reset the index again
                 self.klines_5m.reset_index(inplace=True, drop=True)
                 
                 break
+            
             else:
-                print(f"Updating (5m klines) {self.symbol} was too early, trying again...")
                 time.sleep(0.1)
 
     def update_data_full(self):
@@ -197,31 +182,10 @@ class Coin():
         while True:
             #download the data
             while True:
-                #get new kline
-                while True:
-                    try:
-                        #data = self.client.get_historical_klines(symbol=self.symbol, interval="1h", start_str="2 hours ago UTC")
-                        data = self.client.get_klines(symbol=self.symbol, interval="1h", limit=2)
-                        break
-                    except Exception:
-                        time.sleep(0.1)
-                data = pd.DataFrame(data)
+                #download data
+                new_klines = self._download(interval="1h", limit=2)
 
-                #clean the dataframe
-                data = data.astype(float)
-                data.drop(data.columns[[7,8,9,10,11]], axis=1, inplace=True)
-                data.rename(columns = {0:'open_time', 1:'open', 2:'high', 3:'low', 4:'close', 5:'volume', 6:'close_time'}, inplace=True)
-
-                #set the correct times
-                data['close_time'] += 1
-                data['close_time'] = pd.to_datetime(data['close_time'], unit='ms')
-                data['open_time'] = pd.to_datetime(data['open_time'], unit='ms')
-
-                #check for nan values
-                if data.isna().values.any():
-                    raise Exception("Nan values in data, please discard this object and try again")
-
-                new_klines = data
+                #add new columns
                 new_klines["smaHigh"] = np.nan
                 new_klines["smaLow"] = np.nan
                 new_klines["Hlv"] = np.nan
@@ -249,8 +213,8 @@ class Coin():
                 self.klines_1h.reset_index(inplace=True, drop=True)
                 
                 break
+            
             else:
-                print(f"Updating (1h klines) {self.symbol} was too early, trying again...")
                 time.sleep(1)
 
     def buy_signal_detection(self):
@@ -303,8 +267,6 @@ class Coin():
     def create(cls, symbol):
         instance = cls(symbol=symbol)
         return instance
-
-
 
 
 """

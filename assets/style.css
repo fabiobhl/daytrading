@@ -15,3 +15,8 @@ body {
     font-family: Helvetica, Courier, monospace;
     padding: 10px;
 }
+
+table a, table a:link {
+    text-decoration: none;
+    color: white;
+}

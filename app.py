@@ -37,13 +37,19 @@ def sorter(series):
     series[series == "Long"] = 1
     return series
 
+def linker(df):
+    for i in range(df.shape[0]):
+        df.iloc[i,0] = f"[{df.iloc[i, 0]}]({df.iloc[i,3]})"
+    df.drop(columns="link", inplace=True)
+
 style_header={
     'backgroundColor': 'rgb(19, 23, 34)'
     }
 style_cell={
     'backgroundColor': 'rgb(24, 28, 39)',
     'color': 'white',
-    "textAlign": "center"
+    "textAlign": "center",
+    "textDecoration": "none"
     }
 style_data_conditional = [
     {"if" : {'filter_query': '{action} = PrecLong || {action} = PrecShort',
@@ -65,6 +71,11 @@ style_data_conditional = [
     {"if" : {'filter_query': '{trend_state} = down',
              'column_id': 'trend_state'},
      "color": "rgb(239, 83, 80)"
+    },
+    {"if" : {"column_id": "symbol"},
+     "paddingLeft": "70px",
+     "fontSize": "12px",
+     "width": "200px"
     }
 ]
 
@@ -73,14 +84,15 @@ style_data_conditional = [
 def update_table(n):
     while True:
         try:
-            data = pd.read_csv("./live_data/actions.csv", names=["symbol", "trend_state", "action"])
+            data = pd.read_csv("./live_data/actions.csv", names=["symbol", "trend_state", "action", "link"])
+            linker(data)
             data.sort_values(by="action", inplace=True, ignore_index=True, key=sorter)
             break
         except Exception:
             pass
 
     return dash_table.DataTable(id="table",
-                                columns=[{"name": "Symbol", "id": "symbol", "type": "text"}, {"name": "Trend State", "id": "trend_state", "type": "text"}, {"name": "Action", "id": "action", "type": "text"}],
+                                columns=[{"name": "Symbol", "id": "symbol", "type": "text", "presentation": "markdown"}, {"name": "Trend State", "id": "trend_state", "type": "text"}, {"name": "Action", "id": "action", "type": "text"}],
                                 data=data.to_dict('records'),
                                 style_header=style_header,
                                 style_cell=style_cell,
@@ -103,7 +115,7 @@ def update_info_screen(n):
         except Exception:
             pass
 
-    return html.Div(f"Update Duration: {data['complete_duration']} seconds")
+    return html.Div(f"Update Duration: {round(data['complete_duration'], 2)} seconds")
 
 if __name__ == "__main__":
     app.run_server(host='0.0.0.0', debug=False)
