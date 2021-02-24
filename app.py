@@ -25,6 +25,18 @@ interval = dcc.Interval(id='interval-component', interval=1*1000, n_intervals=0)
 
 app.layout = html.Div(children=[head_div, info_div, table_div, interval])
 
+
+"""
+Table Callbacks
+"""
+def sorter(series):
+    series[series == "noA"] = 4
+    series[series == "PrecLong"] = 3
+    series[series == "PrecShort"] = 3
+    series[series == "Short"] = 2
+    series[series == "Long"] = 1
+    return series
+
 style_header={
     'backgroundColor': 'rgb(19, 23, 34)'
     }
@@ -56,17 +68,6 @@ style_data_conditional = [
     }
 ]
 
-"""
-Table Callbacks
-"""
-def sorter(series):
-    series[series == "noA"] = 4
-    series[series == "PrecLong"] = 3
-    series[series == "PrecShort"] = 3
-    series[series == "Short"] = 2
-    series[series == "Long"] = 1
-    return series
-
 @app.callback(Output('table_div', 'children'),
               Input('interval-component', 'n_intervals'))
 def update_table(n):
@@ -85,6 +86,7 @@ def update_table(n):
                                 style_cell=style_cell,
                                 style_data_conditional=style_data_conditional,
                                 style_as_list_view=True)
+
 
 """
 Info Screen Callbacks
