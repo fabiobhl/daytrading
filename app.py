@@ -8,6 +8,11 @@ import dash_table
 from dash.dependencies import Input, Output
 
 """
+To-Do:
+    -Dashboard on engaged trades
+"""
+
+"""
 Layout Setup
 """
 
@@ -19,11 +24,13 @@ head_div = html.Div(id="head_div", children=[html.H1("Daytrading Status")])
 
 info_div = html.Div(id="info_div")
 
+trading_div = html.Div(id="trading_div")
+
 table_div = html.Div(id="table_div")
 
 interval = dcc.Interval(id='interval-component', interval=1*1000, n_intervals=0)
 
-app.layout = html.Div(children=[head_div, info_div, table_div, interval])
+app.layout = html.Div(children=[head_div, info_div, trading_div, table_div, interval])
 
 
 """

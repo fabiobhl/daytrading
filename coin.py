@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 from binance.client import Client
 import ta
-import keys
 import time
 import datetime
 
@@ -54,10 +53,10 @@ Coin Class
 """
 class Coin():
 
-    def __init__(self, symbol, market_endpoint="futures"):
+    def __init__(self, symbol, config):
         self.symbol = symbol
-        self.client = Client(api_key=keys.key, api_secret=keys.secret)
-        self.market_endpoint = market_endpoint
+        self.client = Client(api_key=config["binance"]["key"], api_secret=config["binance"]["secret"])
+        self.market_endpoint = config["binance"]["market_endpoint"]
 
         """
         Set the url
@@ -264,8 +263,8 @@ class Coin():
         return ret_variable
 
     @classmethod
-    def create(cls, symbol):
-        instance = cls(symbol=symbol)
+    def create(cls, symbol, config):
+        instance = cls(symbol=symbol, config=config)
         return instance
 
 
