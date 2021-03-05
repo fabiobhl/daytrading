@@ -4,7 +4,7 @@ import pandas as pd
 from binance.client import Client
 import ta
 import time
-import datetime
+from datetime import datetime
 
 
 """
@@ -53,6 +53,34 @@ Coin Class
 """
 class Coin():
 
+    def _download(self, interval, limit):
+        #download raw data
+        if self.market_endpoint == "futures":
+            raw_data = self.client.futures_klines(symbol=self.symbol, interval=interval, limit=limit)
+        elif self.market_endpoint == "spot":
+            raw_data = self.client.get_klines(symbol=self.symbol, interval=interval, limit=limit)
+        else:
+            raise Exception("Please choose a valid market_endpoint: [futures, spot]")
+        
+        #create df
+        data = pd.DataFrame(raw_data)
+
+        #clean the dataframe
+        data = data.astype(float)
+        data.drop(data.columns[[7,8,9,10,11]], axis=1, inplace=True)
+        data.rename(columns = {0:'open_time', 1:'open', 2:'high', 3:'low', 4:'close', 5:'volume', 6:'close_time'}, inplace=True)
+
+        #set the correct times
+        data['close_time'] += 1
+        data['close_time'] = pd.to_datetime(data['close_time'], unit='ms')
+        data['open_time'] = pd.to_datetime(data['open_time'], unit='ms')
+
+        #check for nan values
+        if data.isna().values.any():
+            raise Exception("Nan values in data, please discard this object and try again")
+
+        return data
+
     def __init__(self, symbol, config):
         self.symbol = symbol
         self.client = Client(api_key=config["binance"]["key"], api_secret=config["binance"]["secret"])
@@ -100,34 +128,6 @@ class Coin():
 
         #get trend_state
         self.get_trend_state()
-    
-    def _download(self, interval, limit):
-        #download raw data
-        if self.market_endpoint == "futures":
-            raw_data = self.client.futures_klines(symbol=self.symbol, interval=interval, limit=limit)
-        elif self.market_endpoint == "spot":
-            raw_data = self.client.get_klines(symbol=self.symbol, interval=interval, limit=limit)
-        else:
-            raise Exception("Please choose a valid market_endpoint: [futures, spot]")
-        
-        #create df
-        data = pd.DataFrame(raw_data)
-
-        #clean the dataframe
-        data = data.astype(float)
-        data.drop(data.columns[[7,8,9,10,11]], axis=1, inplace=True)
-        data.rename(columns = {0:'open_time', 1:'open', 2:'high', 3:'low', 4:'close', 5:'volume', 6:'close_time'}, inplace=True)
-
-        #set the correct times
-        data['close_time'] += 1
-        data['close_time'] = pd.to_datetime(data['close_time'], unit='ms')
-        data['open_time'] = pd.to_datetime(data['open_time'], unit='ms')
-
-        #check for nan values
-        if data.isna().values.any():
-            raise Exception("Nan values in data, please discard this object and try again")
-
-        return data
 
     def get_trend_state(self):
         if self.klines_1h["Hlv"].iloc[-1] < 0:
@@ -137,64 +137,55 @@ class Coin():
 
         return self.trend_state
 
-    def update_data_between(self):
-        while True:
-            #download new data
-            while True:
-                #download new data
-                new_klines = self._download(interval="5m", limit=2)
+    def _update_5m_data(self):
+        #download new data
+        new_klines = self._download(interval="5m", limit=2)
 
-                #add new column
-                new_klines["ema"] = np.nan
+        #add new column
+        new_klines["ema"] = np.nan
 
-                #check if data is full
-                if new_klines.shape == (2,8):
-                    break
+        #check if data is full
+        if new_klines.shape != (2,8):
+            raise Exception("Downloaded data not complete")
             
-            #add them to the dataframe
-            if new_klines.iloc[0,0] >= self.klines_5m.iloc[-1,0]:
-                #replace last item
-                self.klines_5m.iloc[-1,:] = new_klines.iloc[0,:]
-                #add new item
-                self.klines_5m = self.klines_5m.append(other=new_klines.iloc[1,:], ignore_index=True)
-                #remove first item
-                self.klines_5m.drop(index=0,axis=0,inplace=True)
-                #reset index
-                self.klines_5m.reset_index(inplace=True, drop=True)
+        #add them to the dataframe
+        if new_klines.iloc[0,0] >= self.klines_5m.iloc[-1,0]:
+            #replace last item
+            self.klines_5m.iloc[-1,:] = new_klines.iloc[0,:]
+            #add new item
+            self.klines_5m = self.klines_5m.append(other=new_klines.iloc[1,:], ignore_index=True)
+            #remove first item
+            self.klines_5m.drop(index=0,axis=0,inplace=True)
+            #reset index
+            self.klines_5m.reset_index(inplace=True, drop=True)
 
-                #add the ema
-                ema(data=self.klines_5m)
+            #add the ema
+            ema(data=self.klines_5m)
 
-                #reset the index again
-                self.klines_5m.reset_index(inplace=True, drop=True)
-                
-                break
-            
-            else:
-                time.sleep(0.1)
+            #reset the index again
+            self.klines_5m.reset_index(inplace=True, drop=True)
+        else:
+            raise Exception("Download was too early")
 
-    def update_data_full(self):
+    def update_data(self):
         #update the 5m klines
-        self.update_data_between()
+        self._update_5m_data()
 
-        #update the 1h klines
-        while True:
-            #download the data
-            while True:
-                #download data
-                new_klines = self._download(interval="1h", limit=2)
+        if datetime.now().minute == 0:
+            #download data
+            new_klines = self._download(interval="1h", limit=2)
 
-                #add new columns
-                new_klines["smaHigh"] = np.nan
-                new_klines["smaLow"] = np.nan
-                new_klines["Hlv"] = np.nan
-                new_klines["sslUp"] = np.nan
-                new_klines["sslDown"] = np.nan
+            #add new columns
+            new_klines["smaHigh"] = np.nan
+            new_klines["smaLow"] = np.nan
+            new_klines["Hlv"] = np.nan
+            new_klines["sslUp"] = np.nan
+            new_klines["sslDown"] = np.nan
 
-                #check if data is full
-                if new_klines.shape == (2,12):
-                    break
-            
+            #check if data is full
+            if new_klines.shape != (2,12):
+                raise Exception("Downloaded data not complete")
+                
             #add them to the dataframe
             if new_klines.iloc[0,0] >= self.klines_1h.iloc[-1,0]:
                 #replace last item
@@ -210,11 +201,10 @@ class Coin():
                 ssl_channel(self.klines_1h)
                 #reset the index again
                 self.klines_1h.reset_index(inplace=True, drop=True)
-                
-                break
-            
             else:
-                time.sleep(1)
+                raise Exception("Download was too early")
+                
+        return self.symbol
 
     def buy_signal_detection(self):
         

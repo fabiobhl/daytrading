@@ -1,11 +1,15 @@
 import pandas as pd
 import json
+import time
 
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
 import dash_table
 from dash.dependencies import Input, Output
+from binance.client import Client
+
+from utils import read_config
 
 """
 To-Do:
@@ -24,13 +28,15 @@ head_div = html.Div(id="head_div", children=[html.H1("Daytrading Status")])
 
 info_div = html.Div(id="info_div")
 
-trading_div = html.Div(id="trading_div")
+#trading_div = html.Div(id="trading_div")
 
 table_div = html.Div(id="table_div")
 
 interval = dcc.Interval(id='interval-component', interval=1*1000, n_intervals=0)
 
-app.layout = html.Div(children=[head_div, info_div, trading_div, table_div, interval])
+#interval2 = dcc.Interval(id="trading-interval", interval=60*1000, n_intervals=0)
+
+app.layout = html.Div(children=[head_div, info_div, table_div, interval])
 
 
 """
@@ -123,6 +129,50 @@ def update_info_screen(n):
             pass
 
     return html.Div(f"Update Duration: {round(data['complete_duration'], 2)} seconds")
+
+"""
+Trading Screen Callbacks
+"""
+"""
+config = read_config()
+
+def get_positions(config):
+    #create the client
+    client = Client(api_key=config["binance"]["key"], api_secret=config["binance"]["secret"])
+    
+    #download the data
+    while True:
+        try:
+            raw_data = client.futures_position_information()
+        except Exception:
+            time.sleep(0.5)
+            pass
+    
+    #prepare the data
+    data = pd.DataFrame(raw_data)
+    data["positionAmt"] = pd.to_numeric(data["positionAmt"], downcast="float")
+    indeces = data.index[data["positionAmt"] != 0].to_list()
+    data = data.iloc[indeces, :]
+
+    data.drop(inplace=True, columns=["positionAmt", "entryPrice", "markPrice", "liquidationPrice", "maxNotionalValue", "marginType", "isAutoAddMargin", "positionSide", "notional", "isolatedWallet"])
+
+    return data
+
+@app.callback(Output('trading_div', 'children'),
+              Input('interval-component', 'n_intervals'))
+def update_trading_screen(n):
+    #get the positions
+    positions = get_positions(config)
+    print(positions)
+
+    return dash_table.DataTable(id="trading-table",
+                                columns=[{"name": "Symbol", "id": "symbol", "type": "text"}, {"name": "Leverage", "id": "leverage", "type": "text"}, {"name": "Amount", "id": "amount", "type": "text"}],
+                                data=positions.to_dict('records'),
+                                style_header=style_header,
+                                style_cell=style_cell,
+                                style_data_conditional=style_data_conditional,
+                                style_as_list_view=True)
+"""
 
 if __name__ == "__main__":
     app.run_server(host='0.0.0.0', debug=False)
