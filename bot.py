@@ -61,13 +61,10 @@ class Bot():
         with futures.ThreadPoolExecutor() as executor:
             results = [executor.submit(Coin.create, symbol, self.config) for symbol in self.config["binance"]["symbol_list"]]
 
-        coin_dict = {}
         for result in results:
-            coin_dict[result.result().symbol] = result.result()
+            self.coin_dict[result.result().symbol] = result.result()
 
         print(f"Setup Duration: {time.time()-start}")
-
-        return coin_dict
 
     def __init__(self, config_path=None):
         """
@@ -83,11 +80,16 @@ class Bot():
         self.webhook = Webhook.partial(self.config["discord"]["webhook_id"], self.config["discord"]["webhook_token"], adapter=RequestsWebhookAdapter())
         self.prec_webhook = Webhook.partial(self.config["discord"]["prec_webhook_id"], self.config["discord"]["prec_webhook_token"], adapter=RequestsWebhookAdapter())
 
+        self.manager = multiprocessing.Manager()
+
+        self.coin_dict = self.manager.dict()
+        self._setup()
+
         #create the coin_dict, containing all the coin objects
-        self.coin_dict = self._setup()
+        #self.coin_dict = self._setup()
 
         #create a list that can be shared between processes
-        self.unsuccessfull_updates = multiprocessing.Manager().list()
+        self.unsuccessfull_updates = self.manager.list()
 
     def update(self):
         start = time.time()
@@ -128,14 +130,16 @@ class Bot():
 
                 #append to frame
                 csv_frame.append([symbol, trend_state, action, url])
-                
+                print(action)
                 #send notification to discord
                 if action in "Long" or action in "Short":
+                    print("should be printing long/short")
                     #create the message
                     message = f"{symbol_string}: {action} \n {url}"
                     #send message
                     self.webhook.send(message)
                 elif action in "PrecLong" or action in "PrecShort":
+                    print("should be printing prec")
                     #create the message
                     message = f"{symbol_string}: {action}"
                     #send message
@@ -164,6 +168,12 @@ class Bot():
         with open("./live_data/metadata.json", "w") as jsonfile:
             json.dump(metadata, jsonfile)
 
+    def _round5(self, number):
+            if number == 0:
+                return 5
+            else:
+                return 5 * math.ceil(number/5)
+
     def _timer(self):
         #incase the timer got called immediately after a 5 minute
         while datetime.now().minute % 5 == 0:
@@ -175,7 +185,6 @@ class Bot():
         """
         Method for reinitializing coins that were unable to update
         """
-        local_coin_dict = {}
         while self.unsuccessfull_updates:
             #reinitialize the coins
             with futures.ThreadPoolExecutor() as executor:
@@ -186,19 +195,38 @@ class Bot():
                 try:
                     coin = result.result()
                     #add to local_coin_dict
-                    local_coin_dict[coin.symbol] = coin
+                    self.coin_dict[coin.symbol] = coin
                     #remove from unsuccessfull_updates
                     self.unsuccessfull_updates.remove(coin.symbol)
                 
                 except Exception:
                     time.sleep(1)
-        
-        return local_coin_dict
 
-    def _bewtween_worker(self):
+    def _checker(self):
+        """
+        Method for checking on the coin objects
+        """
+        for symbol in self.coin_dict.keys():
+            coin = self.coin_dict[symbol]
+            
+            """
+            Check the 5m candles
+            """
+            if coin.klines_5m.iloc[-1,-2].minute != self._round5(datetime.now().minute):
+                print("got a mistake")
+                self.unsuccessfull_updates.append(coin.symbol)
+
+            """
+            Check the 1h candles
+            """
+            print(coin.klines_1h)
+
+    def _between_worker(self):
         """
         Function for work that needs to be done between updates
         """
+
+        self._reinitalizer()
 
     def run(self):
         while True:
@@ -209,154 +237,14 @@ class Bot():
 
             print(self.unsuccessfull_updates)
 
-
-
-"""
-Backend Setup
-"""
-#create objects
-def setup(config):
-    start = time.time()
-
-    with futures.ThreadPoolExecutor() as executor:
-        results = [executor.submit(Coin.create, symbol, config) for symbol in config["binance"]["symbol_list"]]
-
-    coin_dict = {}
-    for result in results:
-        coin_dict[result.result().symbol] = result.result()
-
-    print(f"Setup Duration: {time.time()-start}")
-
-    return coin_dict
-
-#update the coins
-def update(coin_dict, update_variable):
-    start = time.time()
-
-    #update the coins
-    if update_variable == "betweenUpdate":
-        update_start = time.time()
-
-        #create threads
-        threads = []
-        for symbol in coin_dict:
-            thread = threading.Thread(target=coin_dict[symbol].update_data_between)
-            thread.start()
-            threads.append(thread)
-
-        #wait for threads to finish
-        for thread in threads:
-            thread.join()
-
-        update_duration = time.time() - update_start
-
-    elif update_variable == "fullUpdate":
-        update_start = time.time()
-
-        #create threads
-        threads = []
-        for symbol in coin_dict:
-            thread = threading.Thread(target=coin_dict[symbol].update_data_full)
-            thread.start()
-            threads.append(thread)
-
-        #wait for threads to finish
-        for thread in threads:
-            thread.join()
-        
-        update_duration = time.time() - update_start
-    
-    #discord notfifications dict
-    disc_not = {}
-    disc_not_prec = {}
-
-    #save the actions to csv
-    csv_frame = []
-    for key in coin_dict:
-        #get values
-        action = coin_dict[key].buy_signal_detection()
-        trend_state = coin_dict[key].trend_state
-        symbol = key
-        url = coin_dict[key].url
-
-        #append to frame
-        csv_frame.append([symbol, trend_state, action, url])
-        
-        #fill notification dict
-        if action in "Long" or action in "Short":
-            disc_not[symbol] = [action, url]
-        elif action in "PrecLong" or action in "PrecShort":
-            disc_not_prec[symbol] = [action]
-    
-    #write to csv
-    df = pd.DataFrame(csv_frame)
-    df.to_csv(path_or_buf="./live_data/actions.csv", header=False, index=False)
-    
-    duration = time.time()-start
-
-    #write metadata to json file
-    metadata = {
-        "complete_duration": duration,
-        "update_duration": update_duration
-    }
-    with open("./live_data/metadata.json", "w") as jsonfile:
-        json.dump(metadata, jsonfile)
-    
-    return disc_not, disc_not_prec
-
-"""
-Discord Setup
-"""
-def send(message_dict, prec_message_dict, config):
-    #check if dictionary is empty
-    if message_dict:
-        #create the webhhok
-        webhook = Webhook.partial(config["discord"]["webhook_id"], config["discord"]["webhook_token"], adapter=RequestsWebhookAdapter())
-        
-        #send all messages to trade-notifications
-        for key in message_dict:
-            #create the message
-            message = f"{key}: {message_dict[key][0]}"
-            for i in range(1, len(message_dict[key])):
-                message += f"\n {message_dict[key][i]}"
-            
-            webhook.send(message)
-
-    if prec_message_dict:
-        #create the webhhook
-        prec_webhook = Webhook.partial(config["discord"]["prec_webhook_id"], config["discord"]["prec_webhook_token"], adapter=RequestsWebhookAdapter())
-
-        #send all messages to precon-notifications
-        for key in prec_message_dict:
-            #create the message
-            message = f"{key}: {prec_message_dict[key][0]}"
-            for i in range(1, len(prec_message_dict[key])):
-                message += f"\n {prec_message_dict[key][i]}"
-            
-            prec_webhook.send(message)
-
-
-"""
-Main Function
-"""
-def main():
-    #read in the config
-    config = read_config()
-
-    #create all coin objects
-    coin_dict = setup(config=config)
-
-    while True:
-        #wait for time to get to 5 minutes
-        update_var = timer()
-
-        #update the coins
-        disc_not, disc_not_prec = update(coin_dict=coin_dict, update_variable=update_var)
-
-        #notify discord
-        send(message_dict=disc_not, prec_message_dict=disc_not_prec, config=config)
-
-        print(f"Finished update at: {datetime.now()}")
+            """
+            #do tasks between
+            print("Cleaning Garbage")
+            p = multiprocessing.Process(target=self._between_worker)
+            p.start()
+            p.join()
+            print("Done with cleaning")
+            """
 
 if __name__ == "__main__":
     bot = Bot()

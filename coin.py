@@ -257,7 +257,9 @@ class Coin():
         instance = cls(symbol=symbol, config=config)
         return instance
 
-
+    def __str__(self):
+        return_str = f"\n------------\nCoin Object of Symbol: {self.symbol},\nInitializationtime: {self.init_call_time}\n------------\n"
+        return return_str
 """
 Figure
 """
