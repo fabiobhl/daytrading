@@ -104,6 +104,12 @@ class Bot():
             #create architecture in folder
             os.makedirs(f"{self.log_path}/coins")
 
+        """
+        Setup App.py
+        """
+        if not os.path.exists("./live_data"):
+            os.makedirs("./live_data")
+
     def update(self):
         start = time.time()
 

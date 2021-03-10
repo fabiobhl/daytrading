@@ -8,4 +8,4 @@ with open(file_path, "r") as json_file:
 
 eth = Coin.create("ETHUSDT", config)
 
-eth.klines_5m.to_csv(path_or_buf="./logs/test.csv", index=False)
+eth.klines_5m.to_csv(path_or_buf="./hallo/test.csv", index=False)
