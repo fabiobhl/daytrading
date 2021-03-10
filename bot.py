@@ -6,6 +6,7 @@ import json
 from concurrent import futures
 import threading
 import multiprocessing
+import math
 
 import pandas as pd
 from discord import Webhook, RequestsWebhookAdapter
@@ -66,7 +67,7 @@ class Bot():
 
         print(f"Setup Duration: {time.time()-start}")
 
-    def __init__(self, config_path=None):
+    def __init__(self, config_path=None, logging=False):
         """
         Arguments:
             -config_path[string]:   path to the config file, if there is no path specified, it is assumed that the config file and this python file are in the same directory
@@ -90,6 +91,18 @@ class Bot():
 
         #create a list that can be shared between processes
         self.unsuccessfull_updates = self.manager.list()
+
+        """
+        Setup Logging
+        """
+        self.logging = logging
+        if logging:
+            #create new folder for logging
+            self.log_path = f"./logs/{datetime.now().strftime('%d-%m-%y=%H-%M-%S')}"
+            os.makedirs(self.log_path)
+            
+            #create architecture in folder
+            os.makedirs(f"{self.log_path}/coins")
 
     def update(self):
         start = time.time()
@@ -221,6 +234,17 @@ class Bot():
             """
             print(coin.klines_1h)
 
+    def _logger(self):
+        #create new folder
+        minute = self._round5(datetime.now().minute)-5
+        new_directory = f"{self.log_path}/coins/{datetime.now().strftime('%d-%m-%y=%H-')}{minute}"
+        os.makedirs(new_directory)
+
+        #log all the coins
+        for symbol in self.coin_dict:
+            self.coin_dict[symbol].klines_5m.to_csv(path_or_buf=f"{new_directory}/{symbol}_5m", index=False)
+            self.coin_dict[symbol].klines_1h.to_csv(path_or_buf=f"{new_directory}/{symbol}_1h", index=False)
+
     def _between_worker(self):
         """
         Function for work that needs to be done between updates
@@ -229,13 +253,20 @@ class Bot():
         self._reinitalizer()
 
     def run(self):
+        #log initial state
+        if self.logging:
+            self._logger()
+        
         while True:
             #wait for time to get to 5 minutes
             self._timer()
+            
             #update the coins
             self.update()
 
-            print(self.unsuccessfull_updates)
+            #log all the data
+            if self.logging:
+                self._logger()
 
             """
             #do tasks between
@@ -247,6 +278,6 @@ class Bot():
             """
 
 if __name__ == "__main__":
-    bot = Bot()
+    bot = Bot(logging=True)
 
     bot.run()
