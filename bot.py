@@ -15,10 +15,8 @@ from coin import Coin
 
 """
 To-Do:
-    -implement time cycle for work between the updates
-    -between checks, which make sure that all the dfs got update correctly / logging
+    -between checks, which make sure that all the dfs got update correctly
     -email notification on error
-    -pre set the leverage and margin mode
 """
 
 class Bot():
@@ -77,20 +75,16 @@ class Bot():
         #list of all symbol strings
         self.symbol_list = self.config["binance"]["symbol_list"]
 
-        #setup of discord webhooks
-        self.webhook = Webhook.partial(self.config["discord"]["webhook_id"], self.config["discord"]["webhook_token"], adapter=RequestsWebhookAdapter())
-        self.prec_webhook = Webhook.partial(self.config["discord"]["prec_webhook_id"], self.config["discord"]["prec_webhook_token"], adapter=RequestsWebhookAdapter())
-
-        self.manager = multiprocessing.Manager()
-
-        self.coin_dict = self.manager.dict()
+        #setup the coin_dict
+        self.coin_dict = {}
         self._setup()
 
-        #create the coin_dict, containing all the coin objects
-        #self.coin_dict = self._setup()
-
+        """
         #create a list that can be shared between processes
+        self.manager = multiprocessing.Manager()
         self.unsuccessfull_updates = self.manager.list()
+        """
+        self.unsuccessfull_updates = []
 
         """
         Setup Logging
@@ -112,6 +106,10 @@ class Bot():
 
     def update(self):
         start = time.time()
+
+        #setup discord webhooks
+        webhook = Webhook.partial(self.config["discord"]["webhook_id"], self.config["discord"]["webhook_token"], adapter=RequestsWebhookAdapter())
+        prec_webhook = Webhook.partial(self.config["discord"]["prec_webhook_id"], self.config["discord"]["prec_webhook_token"], adapter=RequestsWebhookAdapter())
 
         #csv file 
         csv_frame = []
@@ -149,26 +147,25 @@ class Bot():
 
                 #append to frame
                 csv_frame.append([symbol, trend_state, action, url])
-                print(action)
+                
                 #send notification to discord
                 if action in "Long" or action in "Short":
-                    print("should be printing long/short")
                     #create the message
                     message = f"{symbol_string}: {action} \n {url}"
                     #send message
-                    self.webhook.send(message)
+                    webhook.send(message)
+                
                 elif action in "PrecLong" or action in "PrecShort":
-                    print("should be printing prec")
                     #create the message
                     message = f"{symbol_string}: {action}"
                     #send message
-                    self.prec_webhook.send(message)
+                    prec_webhook.send(message)
 
             #check if timeout has been reached
             if time.time()-start > 60:
                 #save the unsuccesfull coins
                 self.unsuccessfull_updates += coin_list
-                print("Unsuccesfull updates:", coin_list)
+                print("Unsuccesfull updates because of timeout:", coin_list)
                 break
         
         #write to csv
@@ -188,10 +185,7 @@ class Bot():
             json.dump(metadata, jsonfile)
 
     def _round5(self, number):
-            if number == 0:
-                return 5
-            else:
-                return 5 * math.ceil(number/5)
+        return 5 * math.ceil((number+1)/5)
 
     def _timer(self):
         #incase the timer got called immediately after a 5 minute
@@ -200,11 +194,12 @@ class Bot():
         while datetime.now().minute % 5 != 0:
             pass
     
-    def _reinitalizer(self, unsuccessfull_updates):
+    def _reinitializer(self, attempts=15):
         """
         Method for reinitializing coins that were unable to update
         """
-        while self.unsuccessfull_updates:
+        reinitialized_coins = {}
+        for i in range(attempts):
             #reinitialize the coins
             with futures.ThreadPoolExecutor() as executor:
                 results = [executor.submit(Coin.create, symbol, self.config) for symbol in self.unsuccessfull_updates]
@@ -214,12 +209,12 @@ class Bot():
                 try:
                     coin = result.result()
                     #add to local_coin_dict
-                    self.coin_dict[coin.symbol] = coin
-                    #remove from unsuccessfull_updates
-                    self.unsuccessfull_updates.remove(coin.symbol)
+                    reinitialized_coins[coin.symbol] = coin
                 
                 except Exception:
                     time.sleep(1)
+
+        return reinitialized_coins
 
     def _checker(self):
         """
@@ -240,6 +235,16 @@ class Bot():
             """
             print(coin.klines_1h)
 
+    def _between_worker(self):
+        """
+        Function for work that needs to be done between updates
+        """
+        ret_dict = {}
+
+        ret_dict["reinitializer"] = self._reinitializer()
+
+        return ret_dict
+
     def _logger(self):
         #create new folder
         minute = self._round5(datetime.now().minute)-5
@@ -251,18 +256,12 @@ class Bot():
             self.coin_dict[symbol].klines_5m.to_csv(path_or_buf=f"{new_directory}/{symbol}_5m", index=False)
             self.coin_dict[symbol].klines_1h.to_csv(path_or_buf=f"{new_directory}/{symbol}_1h", index=False)
 
-    def _between_worker(self):
-        """
-        Function for work that needs to be done between updates
-        """
-
-        self._reinitalizer()
-
     def run(self):
         #log initial state
         if self.logging:
             self._logger()
-        
+
+        #main loop
         while True:
             #wait for time to get to 5 minutes
             self._timer()
@@ -274,14 +273,37 @@ class Bot():
             if self.logging:
                 self._logger()
 
-            """
+
             #do tasks between
             print("Cleaning Garbage")
-            p = multiprocessing.Process(target=self._between_worker)
-            p.start()
-            p.join()
+            
+            successfull_cleanup = False
+            with futures.ProcessPoolExecutor() as executor:
+                future = executor.submit(self._between_worker)
+
+                #calculate remaining time
+                minutes = self._round5(datetime.now().minute) - 1 - datetime.now().minute
+                seconds = datetime.now().second
+                remaining_seconds = minutes*60 - seconds
+                print(f"We have {remaining_seconds} seconds to clean up")
+
+                try:
+                    ret_dict = future.result(timeout=remaining_seconds)
+                    successfull_cleanup = True
+                except Exception as e:
+                    print("Not able to do all the Work between because of timeout")
+                    print(e)
+
+            if successfull_cleanup:
+                #get results from _reinitialiter and put them in coin_dict
+                reinitialized_coins = ret_dict["reinitializer"]
+                for symbol in reinitialized_coins.keys():
+                    #add symbol to coindict
+                    self.coin_dict[symbol] = reinitialized_coins[symbol]
+                    #remove from unsuccessfull_updates
+                    self.unsuccessfull_updates.remove(symbol)
+
             print("Done with cleaning")
-            """
 
 if __name__ == "__main__":
     bot = Bot(logging=True)

@@ -86,6 +86,8 @@ class Coin():
         self.client = Client(api_key=config["binance"]["key"], api_secret=config["binance"]["secret"])
         self.market_endpoint = config["binance"]["market_endpoint"]
 
+        self.init_call_time = datetime.now()
+
         """
         Set the url
         """
